@@ -63,6 +63,9 @@ const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "
 // Pravidla dostanou: ab = zkratka předmětu, pr = skupina je "Praktika" (obojí bez diakritiky, malými písmeny).
 // Pořadí je důležité: první shoda vyhrává. Typy: regular (jednorázové přepnutí),
 // practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
+// Které skupiny z 3.E jsou moje (g = název skupiny bez diakritiky, malými písmeny).
+// Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
+const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || g === "div");
 const OVERLAYS = [
   { id: "W5", name: "6.E", rules: [
     { type: "practical", test: o => o.ab === "mat" && o.pr },
@@ -279,7 +282,7 @@ async function load() {
     const gl = {}, gn = {};
     items.filter(x => x.type !== "regular" && x.g).forEach(x => { (gl[x.gk] ||= new Set()).add(x.g); gn[x.g] = x.a.GroupsNames; });
     Object.keys(gl).forEach(k => gl[k] = [...gl[k]].sort());
-    M = { week, hours, homeAtoms: atomsOf(tts[0]), items, gl, gn };
+    M = { week, hours, homeAtoms: atomsOf(tts[0]).filter(x => MY_GROUP(norm(x.a.GroupsNames))), items, gl, gn };
     $("diag").textContent = diag;
     render(); setStatus(week === "?" ? "Týden se nepodařilo určit, přepínání je vypnuté." : "");
   } catch (e) { setStatus("Chyba: " + e.message); }
