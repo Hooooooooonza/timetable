@@ -7,33 +7,35 @@
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
-  .wrap { max-width: 1300px; margin: 0 auto; padding: 24px 16px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 12px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-  h1 { margin: 0; font-size: 28px; }
-  .btns { display: flex; gap: 8px; }
+  h1 { margin: 0; font-size: 26px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
   button { font: inherit; padding: 8px 14px; border: 1px solid #d5dae0; background: #fff; border-radius: 6px; cursor: pointer; }
   button.active { background: #1a202c; color: #fff; border-color: #1a202c; }
-  .classes { display: flex; gap: 14px; margin: 14px 0 0; flex-wrap: wrap; }
-  .classes label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  #status { color: #c0392b; margin: 12px 0; min-height: 1.2em; }
+  #status { color: #c0392b; margin: 10px 0; min-height: 1.2em; }
   #status.info { color: #555; }
-  hr { border: 0; border-top: 1px solid #d5dae0; margin: 12px 0 16px; }
   .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 900px; table-layout: fixed; }
-  th, td { border: 1px solid #e1e5ea; padding: 6px 8px; vertical-align: top; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 760px; table-layout: fixed; }
+  th, td { border: 1px solid #e1e5ea; padding: 5px 6px; vertical-align: top; font-size: 14px; }
   th { background: #f6f8fa; }
-  th.hour { width: 78px; text-align: left; }
+  th.hour { width: 74px; text-align: left; }
   th small { display: block; font-weight: normal; color: #667; }
-  .lesson { margin-bottom: 6px; padding: 3px 5px; border-radius: 4px; background: #f0f7fa; border: 2px solid transparent; }
-  .lesson b { font-size: 15px; }
-  .lesson span.meta { color: #556; font-size: 12px; display: block; }
+  .lesson { position: relative; margin-bottom: 5px; padding: 3px 5px 3px 7px; border-radius: 4px; background: #f3f6f9; border-left: 4px solid #2b7de9; }
+  .lesson.c1 { border-left-color: #2e9e5b; } .lesson.c2 { border-left-color: #d9822b; }
   .lesson.changed { background: #fdeaea; }
-  .lesson.conflict { border-color: #c0392b; }
-  .lesson .warn { color: #c0392b; font-size: 12px; display: block; }
-  .lesson .chg { color: #c0392b; font-size: 12px; display: block; }
-  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; color: #fff; margin-right: 3px; }
-  .c0 { background: #2b7de9; } .c1 { background: #2e9e5b; } .c2 { background: #d9822b; }
+  .lesson.click { cursor: pointer; } .lesson.click:hover { outline: 2px solid #1a202c33; }
+  .lesson b { font-size: 15px; }
+  .meta { color: #556; font-size: 12px; display: block; }
+  .chg { color: #c0392b; font-size: 12px; display: block; }
+  .corner { display: block; margin-top: 2px; font-size: 11px; color: #2b7de9; font-style: normal; text-align: right; }
+  .ghost { font-size: 11px; color: #667; border: 1px dashed #bbb; border-radius: 4px; padding: 1px 5px; margin-bottom: 4px; display: inline-block; }
+  .ghost.click { cursor: pointer; }
   .empty { color: #ccc; }
+  dialog { border: 0; border-radius: 10px; padding: 18px; max-width: 360px; width: 92%; }
+  dialog::backdrop { background: #0006; }
+  dialog button { display: block; width: 100%; margin-top: 8px; text-align: left; }
+  details { margin-top: 18px; font-size: 13px; } details pre { white-space: pre-wrap; background: #fff; padding: 8px; border-radius: 6px; }
 </style>
 </head>
 <body>
@@ -44,169 +46,244 @@
       <button data-mode="Actual" class="active">Tento týden</button>
       <button data-mode="Next">Příští týden</button>
       <button data-mode="Permanent">Stálý</button>
+      <button id="btnLock">Odemknout</button>
     </div>
   </header>
-  <div class="classes" id="classes"></div>
   <div id="status"></div>
-  <hr>
   <div class="scroll"><div id="out"></div></div>
+  <details><summary>Diagnostika pravidel</summary><pre id="diag"></pre></details>
 </div>
+<dialog id="dlg"></dialog>
 
 <script>
+/* ================== NASTAVENÍ ================== */
 const BASE = "https://znamky.gymji.cz";
-const CLASSES = [
-  { id: "WF", name: "3. E" },
-  { id: "W5", name: "6. E" },
-  { id: "W4", name: "7. E" },
+const HOME = { id: "WF", name: "3.E" };               // výchozí třída
+const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+// Pravidla dostanou: ab = zkratka předmětu, pr = skupina je "Praktika" (obojí bez diakritiky, malými písmeny).
+// Pořadí je důležité: první shoda vyhrává. Typy: regular (jednorázové přepnutí),
+// practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
+const OVERLAYS = [
+  { id: "W5", name: "6.E", rules: [
+    { type: "practical", test: o => o.ab === "mat" && o.pr },
+    { type: "regular",   test: o => o.ab === "mat" },
+  ]},
+  { id: "W4", name: "7.E", rules: [
+    { type: "practical", test: o => o.ab === "fyz" && o.pr },
+    { type: "seminar",   test: o => o.ab === "sch" },
+    { type: "regular",   test: o => o.ab === "fyz" },
+  ]},
 ];
-const DAYS_CZ = { Mon: "Po", Tue: "Út", Wed: "St", Thu: "Čt", Fri: "Pá", Sat: "So", Sun: "Ne" };
+/* =============================================== */
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DAYS = ["Po", "Út", "St", "Čt", "Pá"];
+let mode = "Actual", M = null, REG = [];
+let st = { once: {}, alt: {}, off: {}, swap: {}, grp: {} };
+let pw = sessionStorage.getItem("pw") || "";
 
-let mode = "Actual";
-let data = null;                       // [{cls, tt}] po načtení
-const enabled = new Set(CLASSES.map(c => c.id));
+function setStatus(m, info) { $("status").textContent = m || ""; $("status").className = info ? "info" : ""; }
 
-function setStatus(msg, info) {
-  $("status").textContent = msg || "";
-  $("status").className = info ? "info" : "";
-}
-
-/* ---------- Vytažení JSONu z HTML Bakalářů ---------- */
-function extractTimetableData(html) {
-  const marker = "const timetableData = ";
-  const i = html.indexOf(marker);
+/* ---------- Data z Bakalářů (JSON uvnitř stránky) ---------- */
+function extract(html) {
+  const mk = "const timetableData = ", i = html.indexOf(mk);
   if (i < 0) throw new Error("V odpovědi nejsou data rozvrhu.");
-  let p = i + marker.length, depth = 0, inStr = false, esc_ = false;
-  const start = p;
+  let p = i + mk.length, d = 0, str = false, esc_ = false; const s0 = p;
   for (; p < html.length; p++) {
-    const ch = html[p];
-    if (inStr) {
-      if (esc_) esc_ = false;
-      else if (ch === "\\") esc_ = true;
-      else if (ch === '"') inStr = false;
-    } else if (ch === '"') inStr = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") { depth--; if (depth === 0) { p++; break; } }
+    const c = html[p];
+    if (str) { if (esc_) esc_ = false; else if (c === "\\") esc_ = true; else if (c === '"') str = false; }
+    else if (c === '"') str = true;
+    else if (c === "{") d++;
+    else if (c === "}") { d--; if (!d) { p++; break; } }
   }
-  return JSON.parse(html.slice(start, p));
+  return JSON.parse(html.slice(s0, p));
 }
+async function getTT(m, id) {
+  const r = await fetch(`${BASE}/Timetable/Public/${m}/Class/${id}`);
+  if (!r.ok) throw new Error(`${id}: HTTP ${r.status}`);
+  return extract(await r.text());
+}
+function atomsOf(tt) {
+  const o = [];
+  (tt.Days || []).forEach((day, di) => (day.Hours || []).forEach(h => (h.Atoms || []).forEach(a => { if (a.Type !== "removed") o.push({ di, a }); })));
+  return o;
+}
+function weekKeyOf(tts) {
+  if (mode === "Permanent") return "perm";
+  for (const tt of tts) for (const { a } of atomsOf(tt)) {
+    const m = /(\d+)\/(\d+)\/(\d+)/.exec(a.Day || "");
+    if (m) { const d = new Date(Date.UTC(+m[3], +m[1] - 1, +m[2])); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); return d.toISOString().slice(0, 10); }
+  }
+  return "?";
+}
+const weekIdx = k => Math.floor(Date.parse(k + "T00:00:00Z") / 604800000);
 
-/* ---------- Sloučení tříd ---------- */
-function build() {
-  // sloty hodin (všechny třídy mají stejné hodiny)
-  const hoursRaw = data[0].tt.Hours || [];
-  const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-  const hours = hoursRaw.map(h => ({ cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: toMin(h.BeginTime), em: toMin(h.EndTime) }));
-
-  const dayNames = data[0].tt.Days.map(d => d.DayAbbrev);
-  // grid[dayIdx][hourIdx] = Map(key -> {atom, classes:Set})
-  const grid = dayNames.map(() => hours.map(() => new Map()));
-  const dayDates = dayNames.map(() => "");
-
-  data.forEach(({ cls, tt }) => {
-    if (!enabled.has(cls.id)) return;
-    tt.Days.forEach((day, di) => {
-      (day.Hours || []).forEach(hr => (hr.Atoms || []).forEach(a => {
-        if (!dayDates[di] && a.Day) dayDates[di] = a.Day.split(" ")[0].replace(/^(\d+)\/(\d+)\/\d+$/, "$2. $1.");
-        hours.forEach((h, hi) => {
-          if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) {
-            const key = [a.SubjectAbbrev, a.GroupsNames, a.Teacher, a.Room, a.ChangeInfo].join("|");
-            const cell = grid[di][hi];
-            if (!cell.has(key)) cell.set(key, { atom: a, classes: new Set() });
-            cell.get(key).classes.add(cls.id);
-          }
-        });
-      }));
-    });
+function classify(cls, atoms) {
+  const items = [], skipped = [];
+  atoms.forEach(({ di, a }) => {
+    const o = { ab: norm(a.SubjectAbbrev), pr: /prakt/.test(norm(a.GroupsFullNames)) };
+    const rule = cls.rules.find(r => r.test(o));
+    const subj = a.SubjectAbbrev || a.SubjectText, g = norm(a.GroupsNames);
+    if (!rule) { skipped.push(`${subj} [${a.GroupsNames || "-"}]`); return; }
+    const key = rule.type === "regular" ? `${cls.id}|${norm(subj)}|${di}|${a.BeginTimeValue}` : `${cls.id}|${norm(subj)}|${g}|${di}`;
+    items.push({ cls, type: rule.type, di, a, subj, g, key, gk: `${cls.id}|${norm(subj)}` });
   });
-  return { hours, dayNames, dayDates, grid };
+  return { items, skipped };
 }
 
+/* ---------- Logika přepínání ---------- */
+function shownG(it) {
+  const l = M.gl[it.gk] || [];
+  if (it.type === "seminar") return (st.swap[M.week] && l[1]) || l[0];
+  return l.includes(st.grp[it.gk]) ? st.grp[it.gk] : l[0];
+}
+function isActive(it) {            // null = ignorovat, true = ukázat 6.E/7.E, false = přepnuto na 3.E
+  const w = M.week;
+  if (it.type !== "regular" && it.g && it.g !== shownG(it)) return null;
+  if (w === "perm") return true;
+  if (st.off[it.key]) return false;
+  if (it.type === "regular") return !(st.once[w] || {})[it.key];
+  const s = st.alt[it.key];
+  if (s == null) return true;
+  return (((weekIdx(w) - s) % 2) + 2) % 2 === 1;   // lichý odstup = zase původní předmět
+}
+function actions(it) {
+  const w = M.week, A = [], once = (st.once[w] ||= {});
+  if (it.type === "regular") {
+    if (once[it.key]) A.push([`Obnovit ${it.cls.name} ${it.subj}`, () => delete once[it.key]]);
+    else A.push([`Přepnout na 3.E (jen tento týden)`, () => { once[it.key] = 1; }]);
+    return A;
+  }
+  const gl = M.gl[it.gk] || [];
+  if (it.type === "practical" && gl.length > 1) gl.filter(g => g !== shownG(it)).forEach(g =>
+    A.push([`Moje skupina: ${M.gn[g]} (trvale)`, () => { st.grp[it.gk] = g; }]));
+  if (it.type === "seminar" && gl.length > 1) {
+    A.push(st.swap[w]
+      ? ["Zrušit přehození skupiny", () => delete st.swap[w]]
+      : [`Přehodit seminář na skupinu 2 (jen tento týden)`, () => { st.swap[w] = 1; }]);
+  }
+  const alt = st.alt[it.key] != null, off = !!st.off[it.key];
+  if (!alt && !off) A.push([`Přepnout na 3.E (tento týden, pak se střídá)`, () => { st.alt[it.key] = weekIdx(w); }]);
+  else {
+    if (!off) A.push([`Odebrat úplně (nechat jen 3.E)`, () => { st.off[it.key] = 1; }]);
+    A.push([`Obnovit ${it.cls.name} ${it.subj}`, () => { delete st.alt[it.key]; delete st.off[it.key]; }]);
+  }
+  return A;
+}
+
+/* ---------- Vykreslení ---------- */
 function render() {
-  const { hours, dayNames, dayDates, grid } = build();
-  const used = hours.map((h, hi) => grid.some(day => day[hi].size > 0));
-  const clsIdx = Object.fromEntries(CLASSES.map((c, i) => [c.id, i]));
+  const { hours, homeAtoms, items, week } = M;
+  const can = !!pw && week !== "perm" && week !== "?";
+  REG = [];
+  const cellsH = hours.map(() => DAYS.map(() => ({ base: [], ov: [] })));
+  hours.forEach((h, hi) => {
+    homeAtoms.forEach(({ di, a }) => { if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) cellsH[hi][di].base.push(a); });
+    items.forEach(it => { if (h.bm >= it.a.BeginTimeValue && h.bm < it.a.EndTimeValue) { const ac = isActive(it); if (ac !== null) cellsH[hi][it.di].ov.push({ it, ac }); } });
+  });
+  const used = cellsH.map(r => r.some(c => c.base.length || c.ov.length));
+  const L = (a, ci, extra = "", cls = "") => `<div class="lesson c${ci} ${a.HasChanged ? "changed" : ""} ${cls}" ${extra}><b>${esc(a.SubjectAbbrev || a.SubjectText)}</b>`
+    + `<span class="meta">${esc([a.GroupsNames, a.Room, a.Teacher].filter(Boolean).join(" · "))}</span>`
+    + (a.ChangeInfo ? `<span class="chg">${esc(a.ChangeInfo)}</span>` : "");
 
   let html = "<table><thead><tr><th class='hour'></th>";
-  dayNames.forEach((d, di) => {
-    html += `<th>${esc(DAYS_CZ[d] || d)}<small>${esc(dayDates[di])}</small></th>`;
-  });
+  for (let d = 0; d < 5; d++) {
+    let dt = "";
+    if (/^\d{4}-/.test(week)) { const x = new Date(week + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + d); dt = `${x.getUTCDate()}. ${x.getUTCMonth() + 1}.`; }
+    html += `<th>${DAYS[d]}<small>${dt}</small></th>`;
+  }
   html += "</tr></thead><tbody>";
-
   hours.forEach((h, hi) => {
     if (!used[hi]) return;
-    html += `<tr><th class="hour">${esc(h.cap)}<small>${esc(h.b)}–${esc(h.e)}</small></th>`;
-    dayNames.forEach((d, di) => {
-      const items = [...grid[di][hi].values()];
-      // kolize: stejný učitel / místnost u různých hodin
-      const count = (f) => {
-        const m = {};
-        items.forEach(it => { const v = f(it.atom); if (v) m[v] = (m[v] || 0) + 1; });
-        return m;
-      };
-      const tc = count(a => a.Teacher), rc = count(a => a.Room);
-
-      html += "<td>" + (items.length ? items.map(it => {
-        const a = it.atom;
-        const warns = [];
-        if (a.Teacher && tc[a.Teacher] > 1) warns.push(`učitel ${a.Teacher} je jinde`);
-        if (a.Room && rc[a.Room] > 1) warns.push(`místnost ${a.Room} je obsazená`);
-        const chips = [...it.classes].map(id => `<span class="chip c${clsIdx[id]}">${esc(CLASSES[clsIdx[id]].name)}</span>`).join("");
-        return `<div class="lesson ${a.HasChanged ? "changed" : ""} ${warns.length ? "conflict" : ""}">`
-          + `<div>${chips}</div>`
-          + `<b>${esc(a.SubjectAbbrev || a.SubjectText)}</b>`
-          + `<span class="meta">${esc(a.GroupsNames)} · ${esc(a.Room)} · ${esc(a.Teacher)}</span>`
-          + (a.ChangeInfo ? `<span class="chg">${esc(a.ChangeInfo)}</span>` : "")
-          + (warns.length ? `<span class="warn">⚠ ${esc(warns.join(", "))}</span>` : "")
-          + `</div>`;
-      }).join("") : "<span class='empty'>–</span>") + "</td>";
-    });
+    html += `<tr><th class="hour">${esc(h.cap)}<small>${h.b}–${h.e}</small></th>`;
+    for (let d = 0; d < 5; d++) {
+      const c = cellsH[hi][d], act = c.ov.filter(x => x.ac), off = c.ov.filter(x => !x.ac);
+      const baseTxt = `${HOME.name}: ` + (c.base.length ? c.base.map(a => a.SubjectAbbrev || a.SubjectText).join(", ") : "—");
+      let cell = "";
+      if (act.length) {
+        act.forEach((x, k) => {
+          REG.push(x.it);
+          cell += L(x.it.a, x.it.cls.id === OVERLAYS[0].id ? 1 : 2, `data-i="${REG.length - 1}"`, can ? "click" : "")
+            + (k === 0 ? `<i class="corner">${esc(baseTxt)}</i>` : "") + "</div>";
+        });
+      } else {
+        c.base.forEach(a => { cell += L(a, 0) + "</div>"; });
+      }
+      off.forEach(x => { REG.push(x.it); cell += `<span class="ghost ${can ? "click" : ""}" data-i="${REG.length - 1}">↺ ${esc(x.it.cls.name)} ${esc(x.it.subj)}</span> `; });
+      html += `<td>${cell || "<span class='empty'>–</span>"}</td>`;
+    }
     html += "</tr>";
   });
-  html += "</tbody></table>";
-  $("out").innerHTML = html;
+  $("out").innerHTML = html + "</tbody></table>";
+  $("btnLock").textContent = pw ? "Zamknout" : "Odemknout";
 }
 
-/* ---------- Načítání ---------- */
-async function loadClass(m, id) {
-  const res = await fetch(`${BASE}/Timetable/Public/${m}/Class/${id}`);
-  if (!res.ok) throw new Error(`${id}: HTTP ${res.status}`);
-  return extractTimetableData(await res.text());
-}
-
-async function load() {
-  setStatus("Načítám…", true);
-  $("out").innerHTML = "";
-  try {
-    const tts = await Promise.all(CLASSES.map(c => loadClass(mode, c.id)));
-    data = CLASSES.map((cls, i) => ({ cls, tt: tts[i] }));
-    render();
-    setStatus("");
-  } catch (e) {
-    setStatus("Chyba: " + e.message);
-  }
-}
-
-/* ---------- UI ---------- */
-$("classes").innerHTML = CLASSES.map((c, i) =>
-  `<label><input type="checkbox" data-cls="${c.id}" checked><span class="chip c${i}">${esc(c.name)}</span></label>`).join("");
-
-$("classes").onchange = e => {
-  const id = e.target.dataset.cls;
-  e.target.checked ? enabled.add(id) : enabled.delete(id);
-  if (data) render();
+/* ---------- Interakce ---------- */
+$("out").onclick = e => {
+  const el = e.target.closest("[data-i]");
+  if (!el || !pw || M.week === "perm" || M.week === "?") return;
+  const it = REG[+el.dataset.i], dlg = $("dlg");
+  const acts = actions(it);
+  dlg.innerHTML = `<b>${esc(it.cls.name)} ${esc(it.subj)}</b>`;
+  acts.forEach(([label, fn]) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.onclick = () => { fn(); dlg.close(); save(); };
+    dlg.appendChild(b);
+  });
+  const c = document.createElement("button"); c.textContent = "Zrušit"; c.onclick = () => dlg.close(); dlg.appendChild(c);
+  dlg.showModal();
 };
 
-document.querySelectorAll("[data-mode]").forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x === b));
-    mode = b.dataset.mode;
-    load();
-  };
+async function save() {
+  render();
+  const keep = new Date(Date.now() - 6 * 7 * 864e5).toISOString().slice(0, 10);   // smaž staré týdny
+  ["once", "swap"].forEach(k => Object.keys(st[k]).forEach(w => { if (w < keep) delete st[k][w]; }));
+  try {
+    const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw, state: st }) });
+    if (r.status === 401) { pw = ""; sessionStorage.removeItem("pw"); setStatus("Špatné heslo, zamčeno."); render(); }
+    else if (!r.ok) setStatus("Uložení se nepovedlo (" + r.status + ").");
+  } catch (e) { setStatus("Uložení se nepovedlo: " + e.message); }
+}
+
+$("btnLock").onclick = async () => {
+  if (pw) { pw = ""; sessionStorage.removeItem("pw"); return render(); }
+  const p = prompt("Heslo:"); if (!p) return;
+  const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: p }) }).catch(() => null);
+  if (r && r.ok) { pw = p; sessionStorage.setItem("pw", p); render(); }
+  else alert(r ? "Špatné heslo." : "Server nedostupný.");
+};
+
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x === b));
+  mode = b.dataset.mode; load();
 });
 
+async function load() {
+  setStatus("Načítám…", true); $("out").innerHTML = "";
+  try {
+    const [tts, s] = await Promise.all([
+      Promise.all([HOME, ...OVERLAYS].map(c => getTT(mode, c.id))),
+      fetch("/api/state").then(r => r.ok ? r.json() : {}).catch(() => ({})),
+    ]);
+    st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, ...s };
+    const week = weekKeyOf(tts);
+    const hours = (tts[0].Hours || []).map(h => { const [a, b] = h.BeginTime.split(":").map(Number); return { cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: a * 60 + b }; });
+    let items = [], diag = "";
+    OVERLAYS.forEach((c, i) => {
+      const r = classify(c, atomsOf(tts[i + 1]));
+      items = items.concat(r.items);
+      const seen = {}; r.items.forEach(x => seen[`${x.type}: ${x.subj} [${x.a.GroupsNames || "-"}]`] = 1);
+      diag += `${c.name}\n  zařazeno:\n    ${Object.keys(seen).join("\n    ") || "(nic)"}\n  ignorováno:\n    ${[...new Set(r.skipped)].join("\n    ") || "(nic)"}\n`;
+    });
+    const gl = {}, gn = {};
+    items.filter(x => x.type !== "regular" && x.g).forEach(x => { (gl[x.gk] ||= new Set()).add(x.g); gn[x.g] = x.a.GroupsNames; });
+    Object.keys(gl).forEach(k => gl[k] = [...gl[k]].sort());
+    M = { week, hours, homeAtoms: atomsOf(tts[0]), items, gl, gn };
+    $("diag").textContent = diag;
+    render(); setStatus(week === "?" ? "Týden se nepodařilo určit, přepínání je vypnuté." : "");
+  } catch (e) { setStatus("Chyba: " + e.message); }
+}
 load();
 </script>
 </body>
