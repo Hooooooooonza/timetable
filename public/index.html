@@ -67,7 +67,7 @@ const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "
 // Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
 const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || ["div", "tvd"].includes(g));
 // Tyhle předměty z 3.E se ukazují vždy jen malé v rohu buňky (skutečně je máš v 6.E / 7.E).
-const CORNER = ["mat", "fyz", "che"];
+const CORNER = ["mat", "fyz", "che", "lab"];
 const OVERLAYS = [
   { id: "W5", name: "6.E", rules: [
     { type: "practical", test: o => o.ab === "mat" && o.pr },
