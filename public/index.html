@@ -65,7 +65,9 @@ const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "
 // practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
 // Které skupiny z 3.E jsou moje (g = název skupiny bez diakritiky, malými písmeny).
 // Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
-const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || ["div", "tvd"].includes(g));
+const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || g === "div");
+// Tyhle předměty z 3.E se ukazují vždy jen malé v rohu buňky (skutečně je máš v 6.E / 7.E).
+const CORNER = ["mat", "fyz", "che"];
 const OVERLAYS = [
   { id: "W5", name: "6.E", rules: [
     { type: "practical", test: o => o.ab === "mat" && o.pr },
@@ -202,7 +204,9 @@ function render() {
     html += `<tr><th class="hour">${esc(h.cap)}<small>${h.b}–${h.e}</small></th>`;
     for (let d = 0; d < 5; d++) {
       const c = cellsH[hi][d], act = c.ov.filter(x => x.ac), off = c.ov.filter(x => !x.ac);
-      const baseTxt = `${HOME.name}: ` + (c.base.length ? c.base.map(a => a.SubjectAbbrev || a.SubjectText).join(", ") : "—");
+      const isC = a => CORNER.includes(norm(a.SubjectAbbrev));
+      const nm = l => l.map(a => a.SubjectAbbrev || a.SubjectText).join(", ");
+      const baseTxt = `${HOME.name}: ` + (c.base.length ? nm(c.base) : "—");
       let cell = "";
       if (act.length) {
         act.forEach((x, k) => {
@@ -211,7 +215,9 @@ function render() {
             + (k === 0 ? `<i class="corner">${esc(baseTxt)}</i>` : "") + "</div>";
         });
       } else {
-        c.base.forEach(a => { cell += L(a, 0) + "</div>"; });
+        c.base.filter(a => !isC(a)).forEach(a => { cell += L(a, 0) + "</div>"; });
+        const cb = c.base.filter(isC);
+        if (cb.length) cell += `<i class="corner">${HOME.name}: ${esc(nm(cb))}</i>`;
       }
       off.forEach(x => { REG.push(x.it); cell += `<span class="ghost ${can ? "click" : ""}" data-i="${REG.length - 1}">↺ ${esc(x.it.cls.name)} ${esc(x.it.subj)}</span> `; });
       html += `<td>${cell || "<span class='empty'>–</span>"}</td>`;
