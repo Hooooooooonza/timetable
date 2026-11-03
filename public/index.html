@@ -1,47 +1,221 @@
 <!doctype html>
 <html lang="cs">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rozvrh</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rozvrh</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 28px; }
+  .btns { display: flex; gap: 8px; align-items: center; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #d5dae0; background: #fff; border-radius: 6px; cursor: pointer; }
+  button.active { background: #1a202c; color: #fff; border-color: #1a202c; }
+  #status { color: #c0392b; margin: 12px 0; min-height: 1.2em; }
+  #status.info { color: #555; }
+  hr { border: 0; border-top: 1px solid #d5dae0; margin: 12px 0 16px; }
+  #login { display: none; background: #fff; padding: 16px; border-radius: 8px; max-width: 360px; margin-bottom: 16px; }
+  #login input { display: block; width: 100%; margin: 6px 0 12px; padding: 8px; font: inherit; border: 1px solid #ccd; border-radius: 6px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 700px; }
+  th, td { border: 1px solid #e1e5ea; padding: 6px 8px; vertical-align: top; font-size: 14px; }
+  th { background: #f6f8fa; }
+  th.hour { width: 80px; text-align: left; }
+  th small { display: block; font-weight: normal; color: #667; }
+  .lesson { margin-bottom: 4px; }
+  .lesson b { font-size: 15px; }
+  .lesson span { color: #667; font-size: 12px; display: block; }
+  .changed { background: #fdeaea; border-radius: 4px; padding: 2px 4px; }
+  .changed span.chg { color: #c0392b; }
+  .holiday { color: #667; font-style: italic; }
+</style>
 </head>
 <body>
-  <header class="top">
-    <div class="title">
-      <h1 id="weekTitle">Rozvrh</h1>
-      <p id="weekSub"></p>
+<div class="wrap">
+  <header>
+    <h1>Rozvrh</h1>
+    <div class="btns">
+      <button id="btnThis" class="active">Tento týden</button>
+      <button id="btnNext">Příští týden</button>
+      <button id="btnLock">Odemknout</button>
     </div>
-    <nav class="controls">
-      <div class="seg" role="tablist" aria-label="Týden">
-        <button role="tab" data-term="Actual" aria-selected="true">Tento týden</button>
-        <button role="tab" data-term="Next" aria-selected="false">Příští týden</button>
-      </div>
-      <button id="lockBtn" class="lock" type="button" aria-pressed="false">Odemknout</button>
-    </nav>
   </header>
+  <div id="status"></div>
+  <form id="login">
+    <label>Jméno<input id="user" autocomplete="username"></label>
+    <label>Heslo<input id="pass" type="password" autocomplete="current-password"></label>
+    <button type="submit">Přihlásit</button>
+  </form>
+  <hr>
+  <div class="scroll"><div id="out"></div></div>
+</div>
 
-  <main>
-    <p id="status" class="status" role="status">Načítám…</p>
-    <div class="scroll"><table id="grid" aria-label="Rozvrh"></table></div>
-    <ul id="legend" class="legend"></ul>
-  </main>
+<script>
+const BASE = "https://znamky.gymji.cz";
+// Skupiny/třídy, které se mají zobrazit (prázdné pole = vše). Uprav podle potřeby.
+const FILTER = ["WF", "W5", "W4"];
+const DAYS = ["Po", "Út", "St", "Čt", "Pá"];
 
-  <dialog id="dlg">
-    <form method="dialog" id="dlgForm">
-      <h2 id="dlgTitle"></h2>
-      <p id="dlgText"></p>
-      <div id="dlgBody"></div>
-      <div class="dlg-actions" id="dlgActions"></div>
-    </form>
-  </dialog>
+const $ = id => document.getElementById(id);
+let weekOffset = 0;
 
-  <script src="rules.js"></script>
-  <script src="logic.js"></script>
-  <script src="app.js"></script>
+function setStatus(msg, info) {
+  $("status").textContent = msg || "";
+  $("status").className = info ? "info" : "";
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- Auth ---------- */
+async function tokenRequest(params) {
+  const res = await fetch(`${BASE}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: "ANDR", ...params }),
+  });
+  if (!res.ok) throw new Error("Přihlášení selhalo (" + res.status + ")");
+  const d = await res.json();
+  localStorage.setItem("bak_access", d.access_token);
+  if (d.refresh_token) localStorage.setItem("bak_refresh", d.refresh_token);
+  return d.access_token;
+}
+const login = (u, p) => tokenRequest({ grant_type: "password", username: u, password: p });
+const refresh = () => tokenRequest({ grant_type: "refresh_token", refresh_token: localStorage.getItem("bak_refresh") });
+
+function logout() {
+  localStorage.removeItem("bak_access");
+  localStorage.removeItem("bak_refresh");
+  $("out").innerHTML = "";
+  $("btnLock").textContent = "Odemknout";
+}
+
+/* ---------- Data ---------- */
+function mondayOf(offsetWeeks) {
+  const d = new Date();
+  const day = (d.getDay() + 6) % 7; // pondělí = 0
+  d.setDate(d.getDate() - day + offsetWeeks * 7);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+async function fetchTimetable(date) {
+  const call = token => fetch(`${BASE}/api/3/timetable/actual?date=${date}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  let res = await call(localStorage.getItem("bak_access"));
+  if (res.status === 401 && localStorage.getItem("bak_refresh")) {
+    res = await call(await refresh());
+  }
+  if (res.status === 401) { logout(); throw new Error("Přihlášení vypršelo, odemkni znovu."); }
+  if (!res.ok) throw new Error("Rozvrh se nenačetl (" + res.status + ")");
+  return res.json();
+}
+
+/* ---------- Render ---------- */
+function render(t) {
+  const byId = arr => Object.fromEntries((arr || []).map(x => [x.Id, x]));
+  const subjects = byId(t.Subjects), teachers = byId(t.Teachers), rooms = byId(t.Rooms), groups = byId(t.Groups), classes = byId(t.Classes);
+
+  const keep = atom => {
+    if (!FILTER.length || !atom.GroupIds || !atom.GroupIds.length) return true;
+    return atom.GroupIds.some(id => {
+      const g = groups[id];
+      if (!g) return false;
+      const cls = classes[g.ClassId];
+      return FILTER.includes(g.Abbrev) || (cls && FILTER.includes(cls.Abbrev));
+    });
+  };
+
+  const days = (t.Days || []).filter(d => d.DayOfWeek >= 1 && d.DayOfWeek <= 5);
+  const usedHours = new Set();
+  days.forEach(d => (d.Atoms || []).filter(keep).forEach(a => usedHours.add(a.HourId)));
+  const hours = (t.Hours || []).filter(h => usedHours.has(h.Id));
+
+  let html = "<table><thead><tr><th class='hour'></th>";
+  days.forEach(d => {
+    const dt = new Date(d.Date);
+    html += `<th>${DAYS[d.DayOfWeek - 1]}<small>${dt.getDate()}. ${dt.getMonth() + 1}.</small></th>`;
+  });
+  html += "</tr></thead><tbody>";
+
+  hours.forEach(h => {
+    html += `<tr><th class="hour">${esc(h.Caption)}<small>${esc(h.BeginTime)}–${esc(h.EndTime)}</small></th>`;
+    days.forEach(d => {
+      const atoms = (d.Atoms || []).filter(a => a.HourId === h.Id && keep(a));
+      let cell = "";
+      if (!atoms.length && d.DayType && d.DayType !== "Regular" && h === hours[0]) {
+        cell = `<div class="holiday">${esc(d.DayDescription || d.DayType)}</div>`;
+      }
+      atoms.forEach(a => {
+        const s = subjects[a.SubjectId], te = teachers[a.TeacherId], r = rooms[a.RoomId];
+        const ch = a.Change;
+        const name = s ? s.Abbrev : (ch && ch.ChangeSubject) || "?";
+        cell += `<div class="lesson ${ch ? "changed" : ""}"><b>${esc(name)}</b>`
+          + `<span>${esc(r ? r.Abbrev : "")} ${esc(te ? te.Abbrev : "")}</span>`
+          + (ch ? `<span class="chg">${esc(ch.TypeShort || "")} ${esc(ch.Description || "")}</span>` : "")
+          + `</div>`;
+      });
+      html += `<td>${cell}</td>`;
+    });
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  $("out").innerHTML = hours.length ? html : "<p>Žádné hodiny tento týden.</p>";
+}
+
+async function load() {
+  if (!localStorage.getItem("bak_access") && !localStorage.getItem("bak_refresh")) {
+    $("login").style.display = "block";
+    setStatus("Odemkni přihlášením do Bakalářů.", true);
+    return;
+  }
+  $("login").style.display = "none";
+  $("btnLock").textContent = "Zamknout";
+  setStatus("Načítám…", true);
+  try {
+    render(await fetchTimetable(mondayOf(weekOffset)));
+    setStatus("");
+  } catch (e) {
+    setStatus(e.message);
+    if (!localStorage.getItem("bak_access")) { $("login").style.display = "block"; $("btnLock").textContent = "Odemknout"; }
+  }
+}
+
+/* ---------- Události ---------- */
+function setWeek(n) {
+  weekOffset = n;
+  $("btnThis").classList.toggle("active", n === 0);
+  $("btnNext").classList.toggle("active", n === 1);
+  load();
+}
+$("btnThis").onclick = () => setWeek(0);
+$("btnNext").onclick = () => setWeek(1);
+
+$("btnLock").onclick = () => {
+  if (localStorage.getItem("bak_access") || localStorage.getItem("bak_refresh")) {
+    logout();
+    $("login").style.display = "block";
+    setStatus("Zamčeno.", true);
+  } else {
+    $("login").style.display = "block";
+    $("user").focus();
+  }
+};
+
+$("login").onsubmit = async e => {
+  e.preventDefault();
+  setStatus("Přihlašuji…", true);
+  try {
+    await login($("user").value, $("pass").value);
+    $("pass").value = "";
+    load();
+  } catch (err) {
+    setStatus(err.message);
+  }
+};
+
+load();
+</script>
 </body>
 </html>
