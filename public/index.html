@@ -65,7 +65,7 @@ const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "
 // practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
 // Které skupiny z 3.E jsou moje (g = název skupiny bez diakritiky, malými písmeny).
 // Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
-const MY_GROUP = g => !(/^(nej|TVd$)/.test(g) || /2$/.test(g) || g === "div");
+const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || ["div", "TVd"].includes(g));
 const OVERLAYS = [
   { id: "W5", name: "6.E", rules: [
     { type: "practical", test: o => o.ab === "mat" && o.pr },
