@@ -7,28 +7,33 @@
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+  .wrap { max-width: 1300px; margin: 0 auto; padding: 24px 16px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   h1 { margin: 0; font-size: 28px; }
-  h2 { margin: 24px 0 8px; font-size: 20px; }
   .btns { display: flex; gap: 8px; }
   button { font: inherit; padding: 8px 14px; border: 1px solid #d5dae0; background: #fff; border-radius: 6px; cursor: pointer; }
   button.active { background: #1a202c; color: #fff; border-color: #1a202c; }
+  .classes { display: flex; gap: 14px; margin: 14px 0 0; flex-wrap: wrap; }
+  .classes label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   #status { color: #c0392b; margin: 12px 0; min-height: 1.2em; }
   #status.info { color: #555; }
-  hr { border: 0; border-top: 1px solid #d5dae0; margin: 12px 0 0; }
+  hr { border: 0; border-top: 1px solid #d5dae0; margin: 12px 0 16px; }
   .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 800px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 900px; table-layout: fixed; }
   th, td { border: 1px solid #e1e5ea; padding: 6px 8px; vertical-align: top; font-size: 14px; }
-  th { background: #f6f8fa; text-align: center; }
-  th.day { text-align: left; white-space: nowrap; width: 90px; }
+  th { background: #f6f8fa; }
+  th.hour { width: 78px; text-align: left; }
   th small { display: block; font-weight: normal; color: #667; }
-  .lesson { margin-bottom: 4px; }
+  .lesson { margin-bottom: 6px; padding: 3px 5px; border-radius: 4px; background: #f0f7fa; border: 2px solid transparent; }
   .lesson b { font-size: 15px; }
-  .lesson span { color: #667; font-size: 12px; display: block; }
-  .changed { background: #fdeaea; border-radius: 4px; padding: 2px 4px; }
-  .changed span.chg { color: #c0392b; }
-  .empty { color: #bbb; }
+  .lesson span.meta { color: #556; font-size: 12px; display: block; }
+  .lesson.changed { background: #fdeaea; }
+  .lesson.conflict { border-color: #c0392b; }
+  .lesson .warn { color: #c0392b; font-size: 12px; display: block; }
+  .lesson .chg { color: #c0392b; font-size: 12px; display: block; }
+  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; color: #fff; margin-right: 3px; }
+  .c0 { background: #2b7de9; } .c1 { background: #2e9e5b; } .c2 { background: #d9822b; }
+  .empty { color: #ccc; }
 </style>
 </head>
 <body>
@@ -41,9 +46,10 @@
       <button data-mode="Permanent">Stálý</button>
     </div>
   </header>
+  <div class="classes" id="classes"></div>
   <div id="status"></div>
   <hr>
-  <div id="out"></div>
+  <div class="scroll"><div id="out"></div></div>
 </div>
 
 <script>
@@ -53,99 +59,155 @@ const CLASSES = [
   { id: "W5", name: "6. E" },
   { id: "W4", name: "7. E" },
 ];
+const DAYS_CZ = { Mon: "Po", Tue: "Út", Wed: "St", Thu: "Čt", Fri: "Pá", Sat: "So", Sun: "Ne" };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const txt = el => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
+
+let mode = "Actual";
+let data = null;                       // [{cls, tt}] po načtení
+const enabled = new Set(CLASSES.map(c => c.id));
 
 function setStatus(msg, info) {
   $("status").textContent = msg || "";
   $("status").className = info ? "info" : "";
 }
 
-/* ---------- Parser veřejného rozvrhu Bakalářů ---------- */
-function parseTimetable(html) {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-
-  // záhlaví hodin
-  const hours = [...doc.querySelectorAll(".bk-timetable-header .bk-hour-wrapper")].map(h => ({
-    num: txt(h.querySelector(".num")),
-    time: txt(h.querySelector(".hour")),
-  }));
-
-  const rows = [...doc.querySelectorAll(".bk-timetable-row")].map(row => {
-    const day = txt(row.querySelector(".bk-day-day"));
-    const date = txt(row.querySelector(".bk-day-date"));
-    const cells = [...row.querySelectorAll(".bk-timetable-cell")].map(cell => {
-      const items = [...cell.querySelectorAll(".day-item-hover, .day-item-volno")].map(it => {
-        let d = {};
-        const raw = it.getAttribute("data-detail");
-        if (raw) { try { d = JSON.parse(raw); } catch (e) {} }
-        const subj = txt(it.querySelector(".middle")) || (d.subjecttext ? d.subjecttext.split("|")[0].trim() : "");
-        const group = txt(it.querySelector(".top"));
-        const bottom = txt(it.querySelector(".bottom"));
-        const change = [d.changeinfo, d.removedinfo].filter(Boolean).join(" ");
-        return { subj, group, bottom, teacher: d.teacher || "", room: d.room || "", change };
-      }).filter(x => x.subj || x.change);
-      return items;
-    });
-    return { day, date, cells };
-  });
-
-  return { hours, rows };
+/* ---------- Vytažení JSONu z HTML Bakalářů ---------- */
+function extractTimetableData(html) {
+  const marker = "const timetableData = ";
+  const i = html.indexOf(marker);
+  if (i < 0) throw new Error("V odpovědi nejsou data rozvrhu.");
+  let p = i + marker.length, depth = 0, inStr = false, esc_ = false;
+  const start = p;
+  for (; p < html.length; p++) {
+    const ch = html[p];
+    if (inStr) {
+      if (esc_) esc_ = false;
+      else if (ch === "\\") esc_ = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) { p++; break; } }
+  }
+  return JSON.parse(html.slice(start, p));
 }
 
-function renderTable(t) {
-  if (!t.rows.length) return `<p>Rozvrh se nepodařilo přečíst (žádné řádky). Otevři konzoli a pošli mi výstup z testu níže.</p>`;
-  const cols = Math.max(...t.rows.map(r => r.cells.length));
-  let html = "<div class='scroll'><table><thead><tr><th></th>";
-  for (let i = 0; i < cols; i++) {
-    const h = t.hours[i] || {};
-    html += `<th>${esc(h.num || i)}<small>${esc(h.time || "")}</small></th>`;
-  }
+/* ---------- Sloučení tříd ---------- */
+function build() {
+  // sloty hodin (všechny třídy mají stejné hodiny)
+  const hoursRaw = data[0].tt.Hours || [];
+  const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const hours = hoursRaw.map(h => ({ cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: toMin(h.BeginTime), em: toMin(h.EndTime) }));
+
+  const dayNames = data[0].tt.Days.map(d => d.DayAbbrev);
+  // grid[dayIdx][hourIdx] = Map(key -> {atom, classes:Set})
+  const grid = dayNames.map(() => hours.map(() => new Map()));
+  const dayDates = dayNames.map(() => "");
+
+  data.forEach(({ cls, tt }) => {
+    if (!enabled.has(cls.id)) return;
+    tt.Days.forEach((day, di) => {
+      (day.Hours || []).forEach(hr => (hr.Atoms || []).forEach(a => {
+        if (!dayDates[di] && a.Day) dayDates[di] = a.Day.split(" ")[0].replace(/^(\d+)\/(\d+)\/\d+$/, "$2. $1.");
+        hours.forEach((h, hi) => {
+          if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) {
+            const key = [a.SubjectAbbrev, a.GroupsNames, a.Teacher, a.Room, a.ChangeInfo].join("|");
+            const cell = grid[di][hi];
+            if (!cell.has(key)) cell.set(key, { atom: a, classes: new Set() });
+            cell.get(key).classes.add(cls.id);
+          }
+        });
+      }));
+    });
+  });
+  return { hours, dayNames, dayDates, grid };
+}
+
+function render() {
+  const { hours, dayNames, dayDates, grid } = build();
+  const used = hours.map((h, hi) => grid.some(day => day[hi].size > 0));
+  const clsIdx = Object.fromEntries(CLASSES.map((c, i) => [c.id, i]));
+
+  let html = "<table><thead><tr><th class='hour'></th>";
+  dayNames.forEach((d, di) => {
+    html += `<th>${esc(DAYS_CZ[d] || d)}<small>${esc(dayDates[di])}</small></th>`;
+  });
   html += "</tr></thead><tbody>";
-  t.rows.forEach(r => {
-    html += `<tr><th class="day">${esc(r.day)}<small>${esc(r.date)}</small></th>`;
-    for (let i = 0; i < cols; i++) {
-      const items = r.cells[i] || [];
-      html += "<td>" + (items.length ? items.map(a =>
-        `<div class="lesson ${a.change ? "changed" : ""}"><b>${esc(a.subj)}</b>`
-        + `<span>${esc(a.room || a.bottom)} ${esc(a.teacher)} ${esc(a.group)}</span>`
-        + (a.change ? `<span class="chg">${esc(a.change)}</span>` : "")
-        + `</div>`).join("") : "<span class='empty'>–</span>") + "</td>";
-    }
+
+  hours.forEach((h, hi) => {
+    if (!used[hi]) return;
+    html += `<tr><th class="hour">${esc(h.cap)}<small>${esc(h.b)}–${esc(h.e)}</small></th>`;
+    dayNames.forEach((d, di) => {
+      const items = [...grid[di][hi].values()];
+      // kolize: stejný učitel / místnost u různých hodin
+      const count = (f) => {
+        const m = {};
+        items.forEach(it => { const v = f(it.atom); if (v) m[v] = (m[v] || 0) + 1; });
+        return m;
+      };
+      const tc = count(a => a.Teacher), rc = count(a => a.Room);
+
+      html += "<td>" + (items.length ? items.map(it => {
+        const a = it.atom;
+        const warns = [];
+        if (a.Teacher && tc[a.Teacher] > 1) warns.push(`učitel ${a.Teacher} je jinde`);
+        if (a.Room && rc[a.Room] > 1) warns.push(`místnost ${a.Room} je obsazená`);
+        const chips = [...it.classes].map(id => `<span class="chip c${clsIdx[id]}">${esc(CLASSES[clsIdx[id]].name)}</span>`).join("");
+        return `<div class="lesson ${a.HasChanged ? "changed" : ""} ${warns.length ? "conflict" : ""}">`
+          + `<div>${chips}</div>`
+          + `<b>${esc(a.SubjectAbbrev || a.SubjectText)}</b>`
+          + `<span class="meta">${esc(a.GroupsNames)} · ${esc(a.Room)} · ${esc(a.Teacher)}</span>`
+          + (a.ChangeInfo ? `<span class="chg">${esc(a.ChangeInfo)}</span>` : "")
+          + (warns.length ? `<span class="warn">⚠ ${esc(warns.join(", "))}</span>` : "")
+          + `</div>`;
+      }).join("") : "<span class='empty'>–</span>") + "</td>";
+    });
     html += "</tr>";
   });
-  return html + "</tbody></table></div>";
+  html += "</tbody></table>";
+  $("out").innerHTML = html;
 }
 
 /* ---------- Načítání ---------- */
-async function loadClass(mode, id) {
-  const res = await fetch(`${BASE}/Timetable/Public/${mode}/Class/${id}`);
+async function loadClass(m, id) {
+  const res = await fetch(`${BASE}/Timetable/Public/${m}/Class/${id}`);
   if (!res.ok) throw new Error(`${id}: HTTP ${res.status}`);
-  return parseTimetable(await res.text());
+  return extractTimetableData(await res.text());
 }
 
-async function load(mode) {
+async function load() {
   setStatus("Načítám…", true);
   $("out").innerHTML = "";
   try {
-    const results = await Promise.all(CLASSES.map(c => loadClass(mode, c.id)));
-    $("out").innerHTML = CLASSES.map((c, i) => `<h2>${esc(c.name)}</h2>` + renderTable(results[i])).join("");
+    const tts = await Promise.all(CLASSES.map(c => loadClass(mode, c.id)));
+    data = CLASSES.map((cls, i) => ({ cls, tt: tts[i] }));
+    render();
     setStatus("");
   } catch (e) {
     setStatus("Chyba: " + e.message);
   }
 }
 
+/* ---------- UI ---------- */
+$("classes").innerHTML = CLASSES.map((c, i) =>
+  `<label><input type="checkbox" data-cls="${c.id}" checked><span class="chip c${i}">${esc(c.name)}</span></label>`).join("");
+
+$("classes").onchange = e => {
+  const id = e.target.dataset.cls;
+  e.target.checked ? enabled.add(id) : enabled.delete(id);
+  if (data) render();
+};
+
 document.querySelectorAll("[data-mode]").forEach(b => {
   b.onclick = () => {
     document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x === b));
-    load(b.dataset.mode);
+    mode = b.dataset.mode;
+    load();
   };
 });
 
-load("Actual");
+load();
 </script>
 </body>
 </html>
