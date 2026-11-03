@@ -1,0 +1,124 @@
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --ink: #17212b;
+  --muted: #64717f;
+  --line: #d5dbe2;
+  --accent: #17212b;
+  --off: #e3e7ec;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12171d;
+    --surface: #1b222a;
+    --ink: #e6ebf0;
+    --muted: #93a0ae;
+    --line: #2b343e;
+    --accent: #e6ebf0;
+    --off: #232b34;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.35 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+.top {
+  display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between;
+  max-width: 1100px; margin: 0 auto 14px;
+}
+h1 { margin: 0; font-size: 1.6rem; font-weight: 600; letter-spacing: -.01em; }
+.title p { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button {
+  font: inherit; color: var(--muted); background: none; border: 0; padding: 8px 12px; cursor: pointer;
+}
+.seg button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+.lock {
+  font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.lock[aria-pressed="true"] { border-color: var(--ink); }
+button:focus-visible, .cell.switchable:focus-visible, dialog button:focus-visible, dialog input:focus-visible {
+  outline: 2px solid var(--ink); outline-offset: 2px;
+}
+main { max-width: 1100px; margin: 0 auto; }
+.status { margin: 0 0 10px; color: var(--muted); min-height: 1.35em; }
+.status.error { color: #c0392b; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 640px; table-layout: fixed; }
+th, td { padding: 0; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); vertical-align: top; }
+tr > :last-child { border-right: 0; }
+tbody tr:last-child > * { border-bottom: 0; }
+thead th { padding: 9px 8px; text-align: left; font-weight: 600; background: var(--surface); }
+thead th small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; }
+thead th.today { box-shadow: inset 0 -3px 0 var(--ink); }
+th.hour { width: 62px; padding: 8px 6px; text-align: right; font-weight: 600; background: var(--surface); }
+th.hour small { display: block; font-weight: 400; color: var(--muted); font-size: .72rem; }
+td.off-day { background: var(--off); color: var(--muted); text-align: center; vertical-align: middle; font-size: .85rem; }
+
+.cell {
+  position: relative; min-height: 70px; padding: 8px 8px 20px;
+  border-left: 4px solid transparent;
+}
+.cell.over { border-left-color: var(--c); background: color-mix(in srgb, var(--c) 9%, var(--surface)); }
+.cell .abbr { font-weight: 600; font-size: 1.1rem; letter-spacing: .01em; }
+.cell .abbr .grp { font-weight: 500; font-size: .75rem; color: var(--muted); margin-left: 4px; }
+.cell .meta { color: var(--muted); font-size: .8rem; }
+.cell .more + .more { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.cell .corner {
+  position: absolute; right: 6px; bottom: 4px; font-size: .72rem; color: var(--muted);
+  max-width: calc(100% - 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cell .corner b { font-weight: 600; color: var(--c, var(--muted)); }
+.cell.hidden-over .corner { color: var(--c); }
+.cell .empty { color: var(--muted); }
+.cell.removed .abbr { text-decoration: line-through; color: var(--muted); }
+.cell.changed .abbr::after { content: "•"; color: #d9822b; margin-left: 4px; }
+.cell.switchable { cursor: pointer; outline: 1.5px dashed color-mix(in srgb, var(--c) 70%, transparent); outline-offset: -4px; }
+.cell.switchable:hover { background: color-mix(in srgb, var(--c) 16%, var(--surface)); }
+.tag {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: .68rem; font-weight: 500;
+  background: color-mix(in srgb, var(--c) 18%, transparent); color: var(--ink); vertical-align: 2px;
+}
+
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0; margin: 12px 2px 0; color: var(--muted); font-size: .82rem; }
+.legend li::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px;
+  background: var(--c); vertical-align: -1px;
+}
+
+dialog {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink);
+  padding: 20px; width: min(420px, calc(100vw - 24px));
+}
+dialog::backdrop { background: rgba(10, 14, 18, .5); }
+dialog h2 { margin: 0 0 6px; font-size: 1.1rem; }
+dialog p { margin: 0 0 14px; color: var(--muted); }
+dialog input {
+  width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); margin-bottom: 14px;
+}
+.dlg-actions { display: grid; gap: 8px; }
+.dlg-actions button {
+  font: inherit; text-align: left; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.dlg-actions button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.dlg-actions button.quiet { border-color: transparent; color: var(--muted); }
+.dlg-actions button small { display: block; opacity: .75; font-size: .78rem; }
+
+@media (max-width: 640px) {
+  h1 { font-size: 1.35rem; }
+  th.hour { width: 46px; }
+  .cell { min-height: 64px; padding: 6px 6px 18px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cell, .seg button { transition: background-color .12s; }
+}

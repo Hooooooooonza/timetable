@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rozvrh</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="title">
+      <h1 id="weekTitle">Rozvrh</h1>
+      <p id="weekSub"></p>
+    </div>
+    <nav class="controls">
+      <div class="seg" role="tablist" aria-label="Týden">
+        <button role="tab" data-term="Actual" aria-selected="true">Tento týden</button>
+        <button role="tab" data-term="Next" aria-selected="false">Příští týden</button>
+      </div>
+      <button id="lockBtn" class="lock" type="button" aria-pressed="false">Odemknout</button>
+    </nav>
+  </header>
+
+  <main>
+    <p id="status" class="status" role="status">Načítám…</p>
+    <div class="scroll"><table id="grid" aria-label="Rozvrh"></table></div>
+    <ul id="legend" class="legend"></ul>
+  </main>
+
+  <dialog id="dlg">
+    <form method="dialog" id="dlgForm">
+      <h2 id="dlgTitle"></h2>
+      <p id="dlgText"></p>
+      <div id="dlgBody"></div>
+      <div class="dlg-actions" id="dlgActions"></div>
+    </form>
+  </dialog>
+
+  <script src="rules.js"></script>
+  <script src="logic.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
