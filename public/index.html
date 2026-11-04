@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rozvrh</title>
+<meta name="theme-color" content="#1a202c">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
@@ -65,9 +70,9 @@ const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "
 // practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
 // Které skupiny z 3.E jsou moje (g = název skupiny bez diakritiky, malými písmeny).
 // Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
-const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || ["div", "tvd"].includes(g));
+const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || g === "div");
 // Tyhle předměty z 3.E se ukazují vždy jen malé v rohu buňky (skutečně je máš v 6.E / 7.E).
-const CORNER = ["mat", "fyz", "che", "lab"];
+const CORNER = ["mat", "fyz", "che"];
 const OVERLAYS = [
   { id: "W5", name: "6.E", rules: [
     { type: "practical", test: o => o.ab === "mat" && o.pr },
@@ -76,7 +81,6 @@ const OVERLAYS = [
   { id: "W4", name: "7.E", rules: [
     { type: "practical", test: o => o.ab === "fyz" && o.pr },
     { type: "seminar",   test: o => o.ab === "sch" },
-    { type: "seminar",   test: o => o.ab === "scf" },
     { type: "regular",   test: o => o.ab === "fyz" },
   ]},
 ];
@@ -296,5 +300,6 @@ async function load() {
 }
 load();
 </script>
+<script src="/hide-badge.js"></script>
 </body>
 </html>
