@@ -14,17 +14,23 @@
   body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
   .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 12px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-  h1 { margin: 0; font-size: 26px; }
+  h1 { margin: 0; font-size: 26px; display: inline-block; }
+  #clock { font-variant-numeric: tabular-nums; color: #556; font-size: 15px; margin-left: 12px; }
   .btns { display: flex; gap: 8px; flex-wrap: wrap; }
   button { font: inherit; padding: 8px 14px; border: 1px solid #d5dae0; background: #fff; border-radius: 6px; cursor: pointer; }
   button.active { background: #1a202c; color: #fff; border-color: #1a202c; }
   #status { color: #c0392b; margin: 10px 0; min-height: 1.2em; }
   #status.info { color: #555; }
   .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 760px; table-layout: fixed; }
+  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 1000px; table-layout: fixed; }
   th, td { border: 1px solid #e1e5ea; padding: 5px 6px; vertical-align: top; font-size: 14px; }
   th { background: #f6f8fa; }
-  th.hour { width: 74px; text-align: left; }
+  th.day { width: 78px; text-align: left; }
+  th.now { background: #1a202c; color: #fff; } th.now small { color: #cbd5e0; }
+  th.soon { box-shadow: inset 0 -3px 0 #e0443e; }
+  th.nowday { background: #1a202c; color: #fff; } th.nowday small { color: #cbd5e0; }
+  td.now { box-shadow: inset 0 0 0 3px #e0443e; background: #fffaf0; }
+  td.compete { outline: 2px dashed #d9822b; outline-offset: -3px; }
   th small { display: block; font-weight: normal; color: #667; }
   .lesson { position: relative; margin-bottom: 5px; padding: 3px 5px 3px 7px; border-radius: 4px; background: #f3f6f9; border-left: 4px solid #2b7de9; }
   .lesson.c1 { border-left-color: #2e9e5b; } .lesson.c2 { border-left-color: #d9822b; }
@@ -46,7 +52,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Rozvrh</h1>
+    <div><h1>Rozvrh</h1><span id="clock"></span></div>
     <div class="btns">
       <button data-mode="Actual" class="active">Tento týden</button>
       <button data-mode="Next">Příští týden</button>
@@ -90,7 +96,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const DAYS = ["Po", "Út", "St", "Čt", "Pá"];
 let mode = "Actual", M = null, REG = [];
-let st = { once: {}, alt: {}, off: {}, swap: {}, grp: {} };
+let st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, pick: {} };
 let pw = sessionStorage.getItem("pw") || "";
 
 function setStatus(m, info) { $("status").textContent = m || ""; $("status").className = info ? "info" : ""; }
@@ -183,40 +189,48 @@ function actions(it) {
 }
 
 /* ---------- Vykreslení ---------- */
+let COMP = {};
 function render() {
   const { hours, homeAtoms, items, week } = M;
   const can = !!pw && week !== "perm" && week !== "?";
-  REG = [];
-  const cellsH = hours.map(() => DAYS.map(() => ({ base: [], ov: [] })));
+  REG = []; COMP = {};
+  const picks = (st.pick && st.pick[week]) || {};
+  const cells = DAYS.map(() => hours.map(() => ({ base: [], ov: [] })));      // [den][hodina]
   hours.forEach((h, hi) => {
-    homeAtoms.forEach(({ di, a }) => { if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) cellsH[hi][di].base.push(a); });
-    items.forEach(it => { if (h.bm >= it.a.BeginTimeValue && h.bm < it.a.EndTimeValue) { const ac = isActive(it); if (ac !== null) cellsH[hi][it.di].ov.push({ it, ac }); } });
+    homeAtoms.forEach(({ di, a }) => { if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) cells[di][hi].base.push(a); });
+    items.forEach(it => { if (h.bm >= it.a.BeginTimeValue && h.bm < it.a.EndTimeValue) { const ac = isActive(it); if (ac !== null) cells[it.di][hi].ov.push({ it, ac, pa: false }); } });
   });
-  const used = cellsH.map(r => r.some(c => c.base.length || c.ov.length));
+  cells.forEach((row, di) => row.forEach((c, hi) => {                        // výběr jedné z kolidujících hodin
+    c.ck = di + "|" + hours[hi].bm;
+    const pk = picks[c.ck];
+    if (pk) c.ov.forEach(x => { if (x.it.key !== pk) { x.ac = false; x.pa = true; } });
+    c.compete = c.ov.filter(x => x.ac || x.pa).length > 1;
+    if (c.compete) COMP[c.ck] = c.ov.map(x => x.it);
+  }));
+  const used = hours.map((h, hi) => cells.some(r => r[hi].base.length || r[hi].ov.length));
   const L = (a, ci, extra = "", cls = "") => `<div class="lesson c${ci} ${a.HasChanged ? "changed" : ""} ${cls}" ${extra}><b>${esc(a.SubjectAbbrev || a.SubjectText)}</b>`
     + `<span class="meta">${esc([a.GroupsNames, a.Room, a.Teacher].filter(Boolean).join(" · "))}</span>`
     + (a.ChangeInfo ? `<span class="chg">${esc(a.ChangeInfo)}</span>` : "");
+  const isC = a => CORNER.includes(norm(a.SubjectAbbrev));
+  const nm = l => l.map(a => a.SubjectAbbrev || a.SubjectText).join(", ");
 
-  let html = "<table><thead><tr><th class='hour'></th>";
-  for (let d = 0; d < 5; d++) {
+  let html = "<table><thead><tr><th class='day'></th>";
+  hours.forEach((h, hi) => { if (used[hi]) html += `<th data-hi="${hi}">${esc(h.cap)}<small>${h.b}–${h.e}</small></th>`; });
+  html += "</tr></thead><tbody>";
+  DAYS.forEach((dn, d) => {
     let dt = "";
     if (/^\d{4}-/.test(week)) { const x = new Date(week + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + d); dt = `${x.getUTCDate()}. ${x.getUTCMonth() + 1}.`; }
-    html += `<th>${DAYS[d]}<small>${dt}</small></th>`;
-  }
-  html += "</tr></thead><tbody>";
-  hours.forEach((h, hi) => {
-    if (!used[hi]) return;
-    html += `<tr><th class="hour">${esc(h.cap)}<small>${h.b}–${h.e}</small></th>`;
-    for (let d = 0; d < 5; d++) {
-      const c = cellsH[hi][d], act = c.ov.filter(x => x.ac), off = c.ov.filter(x => !x.ac);
-      const isC = a => CORNER.includes(norm(a.SubjectAbbrev));
-      const nm = l => l.map(a => a.SubjectAbbrev || a.SubjectText).join(", ");
+    html += `<tr data-di="${d}"><th class="day">${dn}<small>${dt}</small></th>`;
+    hours.forEach((h, hi) => {
+      if (!used[hi]) return;
+      const c = cells[d][hi], act = c.ov.filter(x => x.ac), off = c.ov.filter(x => !x.ac);
       const baseTxt = `${HOME.name}: ` + (c.base.length ? nm(c.base) : "—");
+      const ex = i => `data-i="${i}" data-c="${c.ck}"`;
       let cell = "";
       if (act.length) {
         act.forEach((x, k) => {
           REG.push(x.it);
-          cell += L(x.it.a, x.it.cls.id === OVERLAYS[0].id ? 1 : 2, `data-i="${REG.length - 1}"`, can ? "click" : "")
+          cell += L(x.it.a, x.it.cls.id === OVERLAYS[0].id ? 1 : 2, ex(REG.length - 1), can ? "click" : "")
             + (k === 0 ? `<i class="corner">${esc(baseTxt)}</i>` : "") + "</div>";
         });
       } else {
@@ -224,21 +238,29 @@ function render() {
         const cb = c.base.filter(isC);
         if (cb.length) cell += `<i class="corner">${HOME.name}: ${esc(nm(cb))}</i>`;
       }
-      off.forEach(x => { REG.push(x.it); cell += `<span class="ghost ${can ? "click" : ""}" data-i="${REG.length - 1}">↺ ${esc(x.it.cls.name)} ${esc(x.it.subj)}</span> `; });
-      html += `<td>${cell || "<span class='empty'>–</span>"}</td>`;
-    }
+      off.forEach(x => { REG.push(x.it); cell += `<span class="ghost ${can ? "click" : ""}" ${ex(REG.length - 1)} data-pa="${x.pa ? 1 : 0}">↺ ${esc(x.it.cls.name)} ${esc(x.it.subj)}</span> `; });
+      const cmp = can && c.compete && !picks[c.ck] ? " compete" : "";
+      html += `<td class="${cmp}" data-hi="${hi}" data-di="${d}">${cell || "<span class='empty'>–</span>"}</td>`;
+    });
     html += "</tr>";
   });
   $("out").innerHTML = html + "</tbody></table>";
   $("btnLock").textContent = pw ? "Zamknout" : "Odemknout";
+  tick();
 }
 
 /* ---------- Interakce ---------- */
 $("out").onclick = e => {
   const el = e.target.closest("[data-i]");
   if (!el || !pw || M.week === "perm" || M.week === "?") return;
-  const it = REG[+el.dataset.i], dlg = $("dlg");
-  const acts = actions(it);
+  const it = REG[+el.dataset.i], ck = el.dataset.c, w = M.week, dlg = $("dlg");
+  const acts = [];
+  const comp = COMP[ck] || [], cur = ((st.pick || {})[w] || {})[ck];
+  if (comp.length > 1) {
+    comp.forEach(o => { if (o.key !== cur) acts.push([`Chodím na: ${o.cls.name} ${o.subj} (jen tento týden)`, () => { ((st.pick ||= {})[w] ||= {})[ck] = o.key; }]); });
+    if (cur) acts.push(["Zrušit výběr (ukázat obě)", () => { delete st.pick[w][ck]; }]);
+  }
+  if (el.dataset.pa !== "1") acts.push(...actions(it));
   dlg.innerHTML = `<b>${esc(it.cls.name)} ${esc(it.subj)}</b>`;
   acts.forEach(([label, fn]) => {
     const b = document.createElement("button");
@@ -249,10 +271,31 @@ $("out").onclick = e => {
   dlg.showModal();
 };
 
+/* ---------- Hodiny (Praha) a aktuální hodina ---------- */
+const PRG = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Prague", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short" });
+function tick() {
+  const p = Object.fromEntries(PRG.formatToParts(new Date()).map(x => [x.type, x.value]));
+  const n = { y: +p.year, mo: +p.month, d: +p.day, h: +p.hour % 24, mi: +p.minute, s: +p.second, dow: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(p.weekday) };
+  const z = x => String(x).padStart(2, "0");
+  $("clock").textContent = `${z(n.h)}:${z(n.mi)}:${z(n.s)} · Praha`;
+  if (!M) return;
+  const mon = new Date(Date.UTC(n.y, n.mo - 1, n.d)); mon.setUTCDate(mon.getUTCDate() - Math.max(n.dow, 0));
+  const live = (M.week === "perm" || M.week === mon.toISOString().slice(0, 10)) && n.dow >= 0 && n.dow < 5;
+  const nm = n.h * 60 + n.mi; let cur = -1, soon = -1;
+  M.hours.forEach((h, hi) => { if (nm >= h.bm && nm < h.em) cur = hi; else if (soon < 0 && nm < h.bm) soon = hi; });
+  document.querySelectorAll("[data-hi]").forEach(el => {
+    const hi = +el.dataset.hi, td = el.tagName === "TD";
+    el.classList.toggle("now", live && hi === cur && (!td || +el.dataset.di === n.dow));
+    el.classList.toggle("soon", live && !td && cur < 0 && hi === soon);
+  });
+  document.querySelectorAll("tr[data-di]").forEach(tr => tr.firstElementChild.classList.toggle("nowday", live && +tr.dataset.di === n.dow));
+}
+setInterval(tick, 1000);
+
 async function save() {
   render();
   const keep = new Date(Date.now() - 6 * 7 * 864e5).toISOString().slice(0, 10);   // smaž staré týdny
-  ["once", "swap"].forEach(k => Object.keys(st[k]).forEach(w => { if (w < keep) delete st[k][w]; }));
+  ["once", "swap", "pick"].forEach(k => Object.keys(st[k]).forEach(w => { if (w < keep) delete st[k][w]; }));
   try {
     const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw, state: st }) });
     if (r.status === 401) { pw = ""; sessionStorage.removeItem("pw"); setStatus("Špatné heslo, zamčeno."); render(); }
@@ -280,9 +323,9 @@ async function load() {
       Promise.all([HOME, ...OVERLAYS].map(c => getTT(mode, c.id))),
       fetch("/api/state").then(r => r.ok ? r.json() : {}).catch(() => ({})),
     ]);
-    st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, ...s };
+    st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, pick: {}, ...s };
     const week = weekKeyOf(tts);
-    const hours = (tts[0].Hours || []).map(h => { const [a, b] = h.BeginTime.split(":").map(Number); return { cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: a * 60 + b }; });
+    const hours = (tts[0].Hours || []).map(h => { const [a, b] = h.BeginTime.split(":").map(Number), [c, d] = h.EndTime.split(":").map(Number); return { cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: a * 60 + b, em: c * 60 + d }; });
     let items = [], diag = "";
     OVERLAYS.forEach((c, i) => {
       const r = classify(c, atomsOf(tts[i + 1]));
