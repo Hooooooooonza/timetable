@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rozvrh</title>
+<meta name="theme-color" content="#1a202c">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #eef1f4; color: #1a202c; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 12px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 26px; display: inline-block; }
+  #clock { font-variant-numeric: tabular-nums; color: #556; font-size: 15px; margin-left: 12px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #d5dae0; background: #fff; border-radius: 6px; cursor: pointer; }
+  button.active { background: #1a202c; color: #fff; border-color: #1a202c; }
+  #status { color: #c0392b; margin: 10px 0; min-height: 1.2em; }
+  #status.info { color: #555; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; background: #fff; min-width: 1000px; table-layout: fixed; }
+  th, td { border: 1px solid #e1e5ea; padding: 5px 6px; vertical-align: top; font-size: 14px; }
+  th { background: #f6f8fa; }
+  th.day { width: 78px; text-align: left; }
+  th.now { background: #1a202c; color: #fff; } th.now small { color: #cbd5e0; }
+  th.soon { box-shadow: inset 0 -3px 0 #e0443e; }
+  th.nowday { background: #1a202c; color: #fff; } th.nowday small { color: #cbd5e0; }
+  td.now { box-shadow: inset 0 0 0 3px #e0443e; background: #fffaf0; }
+  td.compete { outline: 2px dashed #d9822b; outline-offset: -3px; }
+  th small { display: block; font-weight: normal; color: #667; }
+  .lesson { position: relative; margin-bottom: 5px; padding: 3px 5px 3px 7px; border-radius: 4px; background: #f3f6f9; border-left: 4px solid #2b7de9; }
+  .lesson.c1 { border-left-color: #2e9e5b; } .lesson.c2 { border-left-color: #d9822b; }
+  .lesson.changed { background: #fdeaea; }
+  .lesson.click { cursor: pointer; } .lesson.click:hover { outline: 2px solid #1a202c33; }
+  .lesson b { font-size: 15px; }
+  .meta { color: #556; font-size: 12px; display: block; }
+  .chg { color: #c0392b; font-size: 12px; display: block; }
+  .corner { display: block; margin-top: 2px; font-size: 11px; color: #2b7de9; font-style: normal; text-align: right; }
+  .ghost { font-size: 11px; color: #667; border: 1px dashed #bbb; border-radius: 4px; padding: 1px 5px; margin-bottom: 4px; display: inline-block; }
+  .ghost.click { cursor: pointer; }
+  .empty { color: #ccc; }
+  dialog { border: 0; border-radius: 10px; padding: 18px; max-width: 360px; width: 92%; }
+  dialog::backdrop { background: #0006; }
+  dialog button { display: block; width: 100%; margin-top: 8px; text-align: left; }
+  details { margin-top: 18px; font-size: 13px; } details pre { white-space: pre-wrap; background: #fff; padding: 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Rozvrh</h1><span id="clock"></span></div>
+    <div class="btns">
+      <button data-mode="Actual" class="active">Tento týden</button>
+      <button data-mode="Next">Příští týden</button>
+      <button data-mode="Permanent">Stálý</button>
+      <button id="btnLock">Odemknout</button>
+    </div>
+  </header>
+  <div id="status"></div>
+  <div class="scroll"><div id="out"></div></div>
+  <details><summary>Diagnostika pravidel</summary><pre id="diag"></pre></details>
+</div>
+<dialog id="dlg"></dialog>
+
+<script>
+/* ================== NASTAVENÍ ================== */
+const BASE = "https://znamky.gymji.cz";
+const HOME = { id: "WF", name: "3.E" };               // výchozí třída
+const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+// Pravidla dostanou: ab = zkratka předmětu, pr = skupina je "Praktika" (obojí bez diakritiky, malými písmeny).
+// Pořadí je důležité: první shoda vyhrává. Typy: regular (jednorázové přepnutí),
+// practical (3.E, pak střídání, 2. přepnutí = pryč), seminar (jako practical + přehození skupiny).
+// Které skupiny z 3.E jsou moje (g = název skupiny bez diakritiky, malými písmeny).
+// Skrývá se: němčina (Něj*), skupiny končící 2 (Anj2, Sk2, IVT2...) a dívky. Zbytek (Špj, Anj1, Sk1, IVT1, TVd, Chl, bez skupiny) se ukáže.
+const MY_GROUP = g => !(/^nej/.test(g) || /2$/.test(g) || g === "div");
+// Tyhle předměty z 3.E se ukazují vždy jen malé v rohu buňky (skutečně je máš v 6.E / 7.E).
+const CORNER = ["mat", "fyz", "che"];
+const OVERLAYS = [
+  { id: "W5", name: "6.E", rules: [
+    { type: "practical", test: o => o.ab === "mat" && o.pr },
+    { type: "regular",   test: o => o.ab === "mat" },
+  ]},
+  { id: "W4", name: "7.E", rules: [
+    { type: "practical", test: o => o.ab === "fyz" && o.pr },
+    { type: "seminar",   test: o => o.ab === "sch" },
+    { type: "regular",   test: o => o.ab === "fyz" },
+  ]},
+];
+/* =============================================== */
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DAYS = ["Po", "Út", "St", "Čt", "Pá"];
+let mode = "Actual", M = null, REG = [];
+let st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, pick: {} };
+let pw = sessionStorage.getItem("pw") || "";
+
+function setStatus(m, info) { $("status").textContent = m || ""; $("status").className = info ? "info" : ""; }
+
+/* ---------- Data z Bakalářů (JSON uvnitř stránky) ---------- */
+function extract(html) {
+  const mk = "const timetableData = ", i = html.indexOf(mk);
+  if (i < 0) throw new Error("V odpovědi nejsou data rozvrhu.");
+  let p = i + mk.length, d = 0, str = false, esc_ = false; const s0 = p;
+  for (; p < html.length; p++) {
+    const c = html[p];
+    if (str) { if (esc_) esc_ = false; else if (c === "\\") esc_ = true; else if (c === '"') str = false; }
+    else if (c === '"') str = true;
+    else if (c === "{") d++;
+    else if (c === "}") { d--; if (!d) { p++; break; } }
+  }
+  return JSON.parse(html.slice(s0, p));
+}
+async function getTT(m, id) {
+  const r = await fetch(`${BASE}/Timetable/Public/${m}/Class/${id}`);
+  if (!r.ok) throw new Error(`${id}: HTTP ${r.status}`);
+  return extract(await r.text());
+}
+function atomsOf(tt) {
+  const o = [];
+  (tt.Days || []).forEach((day, di) => (day.Hours || []).forEach(h => (h.Atoms || []).forEach(a => { if (a.Type !== "removed") o.push({ di, a }); })));
+  return o;
+}
+function parseDay(str) {                       // formát závisí na jazyce prohlížeče (en: 11/2/2026, cs: 2. 11. 2026)
+  let m;
+  if ((m = /(\d{4})-(\d{2})-(\d{2})/.exec(str))) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  if ((m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(str))) return Date.UTC(+m[3], +m[1] - 1, +m[2]);
+  if ((m = /(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(str))) return Date.UTC(+m[3], +m[2] - 1, +m[1]);
+  return null;
+}
+const mondayKey = t => { const d = new Date(t); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); return d.toISOString().slice(0, 10); };
+function weekKeyOf(tts) {
+  if (mode === "Permanent") return "perm";
+  for (const tt of tts) for (const { a } of atomsOf(tt)) {
+    const t = parseDay(a.Day || "");
+    if (t != null) return mondayKey(t);
+  }
+  const n = pragueNow();                       // záloha: týden podle pražského času
+  return mondayKey(Date.UTC(n.y, n.mo - 1, n.d) + (mode === "Next" ? 7 * 864e5 : 0));
+}
+const weekIdx = k => Math.floor(Date.parse(k + "T00:00:00Z") / 604800000);
+
+function classify(cls, atoms) {
+  const items = [], skipped = [];
+  atoms.forEach(({ di, a }) => {
+    const o = { ab: norm(a.SubjectAbbrev), pr: /prakt/.test(norm(a.GroupsFullNames)) };
+    const rule = cls.rules.find(r => r.test(o));
+    const subj = a.SubjectAbbrev || a.SubjectText, g = norm(a.GroupsNames);
+    if (!rule) { skipped.push(`${subj} [${a.GroupsNames || "-"}]`); return; }
+    const key = rule.type === "regular" ? `${cls.id}|${norm(subj)}|${di}|${a.BeginTimeValue}` : `${cls.id}|${norm(subj)}|${g}|${di}`;
+    items.push({ cls, type: rule.type, di, a, subj, g, key, gk: `${cls.id}|${norm(subj)}` });
+  });
+  return { items, skipped };
+}
+
+/* ---------- Logika přepínání ---------- */
+function shownG(it) {
+  const l = M.gl[it.gk] || [];
+  if (it.type === "seminar") return (st.swap[M.week] && l[1]) || l[0];
+  return l.includes(st.grp[it.gk]) ? st.grp[it.gk] : l[0];
+}
+function isActive(it) {            // null = ignorovat, true = ukázat 6.E/7.E, false = přepnuto na 3.E
+  const w = M.week;
+  if (it.type !== "regular" && it.g && it.g !== shownG(it)) return null;
+  if (w === "perm") return true;
+  if (st.off[it.key]) return false;
+  if (it.type === "regular") return !(st.once[w] || {})[it.key];
+  const s = st.alt[it.key];
+  if (s == null) return true;
+  return (((weekIdx(w) - s) % 2) + 2) % 2 === 1;   // lichý odstup = zase původní předmět
+}
+function actions(it) {
+  const w = M.week, A = [], once = (st.once[w] ||= {});
+  if (it.type === "regular") {
+    if (once[it.key]) A.push([`Obnovit ${it.cls.name} ${it.subj}`, () => delete once[it.key]]);
+    else A.push([`Přepnout na 3.E (jen tento týden)`, () => { once[it.key] = 1; }]);
+    return A;
+  }
+  const gl = M.gl[it.gk] || [];
+  if (it.type === "practical" && gl.length > 1) gl.filter(g => g !== shownG(it)).forEach(g =>
+    A.push([`Moje skupina: ${M.gn[g]} (trvale)`, () => { st.grp[it.gk] = g; }]));
+  if (it.type === "seminar" && gl.length > 1) {
+    A.push(st.swap[w]
+      ? ["Zrušit přehození skupiny", () => delete st.swap[w]]
+      : [`Přehodit seminář na skupinu 2 (jen tento týden)`, () => { st.swap[w] = 1; }]);
+  }
+  const alt = st.alt[it.key] != null, off = !!st.off[it.key];
+  if (!alt && !off) A.push([`Přepnout na 3.E (tento týden, pak se střídá)`, () => { st.alt[it.key] = weekIdx(w); }]);
+  else {
+    if (!off) A.push([`Odebrat úplně (nechat jen 3.E)`, () => { st.off[it.key] = 1; }]);
+    A.push([`Obnovit ${it.cls.name} ${it.subj}`, () => { delete st.alt[it.key]; delete st.off[it.key]; }]);
+  }
+  return A;
+}
+
+/* ---------- Vykreslení ---------- */
+let COMP = {};
+function render() {
+  const { hours, homeAtoms, items, week } = M;
+  const can = !!pw && week !== "perm" && week !== "?";
+  REG = []; COMP = {};
+  const picks = (st.pick && st.pick[week]) || {};
+  const cells = DAYS.map(() => hours.map(() => ({ base: [], ov: [] })));      // [den][hodina]
+  hours.forEach((h, hi) => {
+    homeAtoms.forEach(({ di, a }) => { if (h.bm >= a.BeginTimeValue && h.bm < a.EndTimeValue) cells[di][hi].base.push(a); });
+    items.forEach(it => { if (h.bm >= it.a.BeginTimeValue && h.bm < it.a.EndTimeValue) { const ac = isActive(it); if (ac !== null) cells[it.di][hi].ov.push({ it, ac, pa: false }); } });
+  });
+  cells.forEach((row, di) => row.forEach((c, hi) => {                        // výběr jedné z kolidujících hodin
+    c.ck = di + "|" + hours[hi].bm;
+    const pk = picks[c.ck];
+    if (pk) c.ov.forEach(x => { if (x.it.key !== pk) { x.ac = false; x.pa = true; } });
+    c.compete = c.ov.filter(x => x.ac || x.pa).length > 1;
+    if (c.compete) COMP[c.ck] = c.ov.map(x => x.it);
+  }));
+  const used = hours.map((h, hi) => cells.some(r => r[hi].base.length || r[hi].ov.length));
+  const L = (a, ci, extra = "", cls = "") => `<div class="lesson c${ci} ${a.HasChanged ? "changed" : ""} ${cls}" ${extra}><b>${esc(a.SubjectAbbrev || a.SubjectText)}</b>`
+    + `<span class="meta">${esc([a.GroupsNames, a.Room, a.Teacher].filter(Boolean).join(" · "))}</span>`
+    + (a.ChangeInfo ? `<span class="chg">${esc(a.ChangeInfo)}</span>` : "");
+  const isC = a => CORNER.includes(norm(a.SubjectAbbrev));
+  const nm = l => l.map(a => a.SubjectAbbrev || a.SubjectText).join(", ");
+
+  let html = "<table><thead><tr><th class='day'></th>";
+  hours.forEach((h, hi) => { if (used[hi]) html += `<th data-hi="${hi}">${esc(h.cap)}<small>${h.b}–${h.e}</small></th>`; });
+  html += "</tr></thead><tbody>";
+  DAYS.forEach((dn, d) => {
+    let dt = "";
+    if (/^\d{4}-/.test(week)) { const x = new Date(week + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + d); dt = `${x.getUTCDate()}. ${x.getUTCMonth() + 1}.`; }
+    html += `<tr data-di="${d}"><th class="day">${dn}<small>${dt}</small></th>`;
+    hours.forEach((h, hi) => {
+      if (!used[hi]) return;
+      const c = cells[d][hi], act = c.ov.filter(x => x.ac), off = c.ov.filter(x => !x.ac);
+      const baseTxt = `${HOME.name}: ` + (c.base.length ? nm(c.base) : "—");
+      const ex = i => `data-i="${i}" data-c="${c.ck}"`;
+      let cell = "";
+      if (act.length) {
+        act.forEach((x, k) => {
+          REG.push(x.it);
+          cell += L(x.it.a, x.it.cls.id === OVERLAYS[0].id ? 1 : 2, ex(REG.length - 1), can ? "click" : "")
+            + (k === 0 ? `<i class="corner">${esc(baseTxt)}</i>` : "") + "</div>";
+        });
+      } else {
+        c.base.filter(a => !isC(a)).forEach(a => { cell += L(a, 0) + "</div>"; });
+        const cb = c.base.filter(isC);
+        if (cb.length) cell += `<i class="corner">${HOME.name}: ${esc(nm(cb))}</i>`;
+      }
+      off.forEach(x => { REG.push(x.it); cell += `<span class="ghost ${can ? "click" : ""}" ${ex(REG.length - 1)} data-pa="${x.pa ? 1 : 0}">↺ ${esc(x.it.cls.name)} ${esc(x.it.subj)}</span> `; });
+      const cmp = can && c.compete && !picks[c.ck] ? " compete" : "";
+      html += `<td class="${cmp}" data-hi="${hi}" data-di="${d}">${cell || "<span class='empty'>–</span>"}</td>`;
+    });
+    html += "</tr>";
+  });
+  $("out").innerHTML = html + "</tbody></table>";
+  $("btnLock").textContent = pw ? "Zamknout" : "Odemknout";
+  tick();
+}
+
+/* ---------- Interakce ---------- */
+$("out").onclick = e => {
+  const el = e.target.closest("[data-i]");
+  if (!el || !pw || M.week === "perm" || M.week === "?") return;
+  const it = REG[+el.dataset.i], ck = el.dataset.c, w = M.week, dlg = $("dlg");
+  const acts = [];
+  const comp = COMP[ck] || [], cur = ((st.pick || {})[w] || {})[ck];
+  if (comp.length > 1) {
+    comp.forEach(o => { if (o.key !== cur) acts.push([`Chodím na: ${o.cls.name} ${o.subj} (jen tento týden)`, () => { ((st.pick ||= {})[w] ||= {})[ck] = o.key; }]); });
+    if (cur) acts.push(["Zrušit výběr (ukázat obě)", () => { delete st.pick[w][ck]; }]);
+  }
+  if (el.dataset.pa !== "1") acts.push(...actions(it));
+  dlg.innerHTML = `<b>${esc(it.cls.name)} ${esc(it.subj)}</b>`;
+  acts.forEach(([label, fn]) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.onclick = () => { fn(); dlg.close(); save(); };
+    dlg.appendChild(b);
+  });
+  const c = document.createElement("button"); c.textContent = "Zrušit"; c.onclick = () => dlg.close(); dlg.appendChild(c);
+  dlg.showModal();
+};
+
+/* ---------- Hodiny (Praha) a aktuální hodina ---------- */
+const PRG = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Prague", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short" });
+function pragueNow() {
+  const p = Object.fromEntries(PRG.formatToParts(new Date()).map(x => [x.type, x.value]));
+  return { y: +p.year, mo: +p.month, d: +p.day, h: +p.hour % 24, mi: +p.minute, s: +p.second, dow: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(p.weekday) };
+}
+function tick() {
+  const n = pragueNow();
+  const z = x => String(x).padStart(2, "0");
+  $("clock").textContent = `${z(n.h)}:${z(n.mi)}:${z(n.s)} · Praha`;
+  if (!M) return;
+  const mon = new Date(Date.UTC(n.y, n.mo - 1, n.d)); mon.setUTCDate(mon.getUTCDate() - Math.max(n.dow, 0));
+  const live = (M.week === "perm" || M.week === mon.toISOString().slice(0, 10)) && n.dow >= 0 && n.dow < 5;
+  const nm = n.h * 60 + n.mi; let cur = -1, soon = -1;
+  M.hours.forEach((h, hi) => { if (nm >= h.bm && nm < h.em) cur = hi; else if (soon < 0 && nm < h.bm) soon = hi; });
+  document.querySelectorAll("[data-hi]").forEach(el => {
+    const hi = +el.dataset.hi, td = el.tagName === "TD";
+    el.classList.toggle("now", live && hi === cur && (!td || +el.dataset.di === n.dow));
+    el.classList.toggle("soon", live && !td && cur < 0 && hi === soon);
+  });
+  document.querySelectorAll("tr[data-di]").forEach(tr => tr.firstElementChild.classList.toggle("nowday", live && +tr.dataset.di === n.dow));
+}
+setInterval(tick, 1000);
+
+async function save() {
+  render();
+  const keep = new Date(Date.now() - 6 * 7 * 864e5).toISOString().slice(0, 10);   // smaž staré týdny
+  ["once", "swap", "pick"].forEach(k => Object.keys(st[k]).forEach(w => { if (w < keep) delete st[k][w]; }));
+  try {
+    const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw, state: st }) });
+    if (r.status === 401) { pw = ""; sessionStorage.removeItem("pw"); setStatus("Špatné heslo, zamčeno."); render(); }
+    else if (!r.ok) setStatus("Uložení se nepovedlo (" + r.status + ").");
+  } catch (e) { setStatus("Uložení se nepovedlo: " + e.message); }
+}
+
+$("btnLock").onclick = async () => {
+  if (pw) { pw = ""; sessionStorage.removeItem("pw"); return render(); }
+  const p = prompt("Heslo:"); if (!p) return;
+  const r = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: p }) }).catch(() => null);
+  if (r && r.ok) { pw = p; sessionStorage.setItem("pw", p); render(); }
+  else alert(r ? "Špatné heslo." : "Server nedostupný.");
+};
+
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x === b));
+  mode = b.dataset.mode; load();
+});
+
+async function load() {
+  setStatus("Načítám…", true); $("out").innerHTML = "";
+  try {
+    const [tts, s] = await Promise.all([
+      Promise.all([HOME, ...OVERLAYS].map(c => getTT(mode, c.id))),
+      fetch("/api/state").then(r => r.ok ? r.json() : {}).catch(() => ({})),
+    ]);
+    st = { once: {}, alt: {}, off: {}, swap: {}, grp: {}, pick: {}, ...s };
+    const week = weekKeyOf(tts);
+    const hours = (tts[0].Hours || []).map(h => { const [a, b] = h.BeginTime.split(":").map(Number), [c, d] = h.EndTime.split(":").map(Number); return { cap: h.Caption, b: h.BeginTime, e: h.EndTime, bm: a * 60 + b, em: c * 60 + d }; });
+    let items = [], diag = "";
+    OVERLAYS.forEach((c, i) => {
+      const r = classify(c, atomsOf(tts[i + 1]));
+      items = items.concat(r.items);
+      const seen = {}; r.items.forEach(x => seen[`${x.type}: ${x.subj} [${x.a.GroupsNames || "-"}]`] = 1);
+      diag += `${c.name}\n  zařazeno:\n    ${Object.keys(seen).join("\n    ") || "(nic)"}\n  ignorováno:\n    ${[...new Set(r.skipped)].join("\n    ") || "(nic)"}\n`;
+    });
+    const gl = {}, gn = {};
+    items.filter(x => x.type !== "regular" && x.g).forEach(x => { (gl[x.gk] ||= new Set()).add(x.g); gn[x.g] = x.a.GroupsNames; });
+    Object.keys(gl).forEach(k => gl[k] = [...gl[k]].sort());
+    M = { week, hours, homeAtoms: atomsOf(tts[0]).filter(x => MY_GROUP(norm(x.a.GroupsNames))), items, gl, gn };
+    $("diag").textContent = diag;
+    render(); setStatus(week === "?" ? "Týden se nepodařilo určit, přepínání je vypnuté." : "");
+  } catch (e) { setStatus("Chyba: " + e.message); }
+}
+load();
+</script>
+<script src="/hide-badge.js"></script>
+</body>
+</html>
